@@ -81,7 +81,6 @@ mice.impute.2l.glmmTMB <- function(y,
     glmmTMB::glmmTMB(
       formula = randmodel,
       data = dat[ry, ],
-      family = gaussian(),
       ...
     ),
     silent = TRUE
@@ -167,8 +166,7 @@ complete_data <- data.frame(
 
 complete_fit <- glmmTMB(
   score ~ age + study_hours + (1 + study_hours | school_id),
-  data = complete_data,
-  family = gaussian()
+  data = complete_data
 )
 
 summary(complete_fit)
@@ -347,6 +345,8 @@ covered_glmmTMB <- lower_glmmTMB <= true_beta_study_hours & upper_glmmTMB >= tru
 
 # Analyzing the imputed datasets from miceadds lmer 
 # (same procedure as for glmmTMB mice function)
+# Basically using glmmTMB as analysis model for completed datasets that were imputed using
+# lmer as imputation model (we can discuss if this is the correct way to do it)
 # ------------------------------------------------------------------------------
 
 q_lmer <- rep(NA, m)
@@ -358,8 +358,7 @@ for (k in 1:m) {
   
   fit_k <- glmmTMB(
     score ~ age + study_hours + (1 + study_hours | school_id),
-    data = completed_k,
-    family = gaussian()
+    data = completed_k
   )
   
   q_lmer[k] <- summary(fit_k)$coefficients$cond["study_hours", "Estimate"]
