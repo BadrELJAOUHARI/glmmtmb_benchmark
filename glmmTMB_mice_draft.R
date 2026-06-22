@@ -117,6 +117,18 @@ mice.impute.2l.glmmTMB <- function(y,
 
 set.seed(2026)
 
+# I now make this a simulation study instead of one single simulation
+n_sim <- 10
+
+# I save the results of each simulation repetition here
+simulation_results_list <- vector("list", n_sim)
+
+for (sim in 1:n_sim) {
+  
+  # I use a different seed for each simulation repetition
+  set.seed(2026 + sim)
+  
+  cat("\nSimulation repetition:", sim, "of", n_sim, "\n")
 
 # I made the dataset larger than before but we can still make it even larger
 # When we make it larger it mice() takes much more time to run the itrerations
@@ -386,12 +398,20 @@ covered_lmer <- lower_lmer <= true_beta_study_hours & upper_lmer >= true_beta_st
 
 # The parameter of interest is the effect of study_hours, the true value is 1.8
 # Combing the evaluation into one single dataframe:
-evaluation <- data.frame(
+# I save one row per method for this simulation repetition
+evaluation_sim <- data.frame(
+  simulation = sim,
+  
   method = c("2l.glmmTMB", "2l.continuous (lmer)"),
   
   estimate = c(qbar_glmmTMB, qbar_lmer),
   
   true_value = true_beta_study_hours,
+  
+  bias = c(
+    qbar_glmmTMB - true_beta_study_hours,
+    qbar_lmer - true_beta_study_hours
+  ),
   
   absolute_bias = abs(c(
     qbar_glmmTMB - true_beta_study_hours,
@@ -401,10 +421,7 @@ evaluation <- data.frame(
   lower = c(lower_glmmTMB, lower_lmer),
   upper = c(upper_glmmTMB, upper_lmer),
   
-  covered = c(
-    lower_glmmTMB <= true_beta_study_hours & upper_glmmTMB >= true_beta_study_hours,
-    lower_lmer <= true_beta_study_hours & upper_lmer >= true_beta_study_hours
-  ),
+  covered = c(covered_glmmTMB, covered_lmer),
   
   ci_width = c(
     upper_glmmTMB - lower_glmmTMB,
@@ -417,8 +434,26 @@ evaluation <- data.frame(
   )
 )
 
+# I save the result of this repetition
+simulation_results_list[[sim]] <- evaluation_sim
+
+print(evaluation_sim)
+  }
+
+# Combining all simulation repetitions
+evaluation <- do.call(rbind, simulation_results_list)
+
 evaluation
 
+
+# Summary across the 10 simulation repetitions
+simulation_summary <- aggregate(
+  cbind(estimate, bias, absolute_bias, covered, ci_width, runtime_seconds) ~ method,
+  data = evaluation,
+  FUN = mean
+)
+
+simulation_summary
 
 # Graph 1: bias
 
