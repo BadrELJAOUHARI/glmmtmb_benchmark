@@ -184,6 +184,13 @@ complete_fit <- glmmTMB(
 summary(complete_fit)
 
 complete_estimate <- summary(complete_fit)$coefficients$cond["study_hours", "Estimate"]
+complete_se <- summary(complete_fit)$coefficients$cond["study_hours", "Std. Error"]
+
+lower_complete <- complete_estimate - 1.96 * complete_se
+upper_complete <- complete_estimate + 1.96 * complete_se
+
+covered_complete <- lower_complete <= true_beta_study_hours & upper_complete >= true_beta_study_hours
+
 complete_estimate
 
 
@@ -216,6 +223,34 @@ missing_data$school_id <- as.integer(missing_data$school_id)
 
 # Quick check of how many missing values I created
 colSums(is.na(missing_data))
+
+
+# Complete case analysis (CCA)
+# ---------------------------------------
+
+# Complete case analysis means list-wise deletion.
+# So I remove all rows that have at least one missing value.
+cca_data <- na.omit(missing_data)
+
+# I transform school_id back to factor because it is the grouping variable.
+cca_data$school_id <- factor(cca_data$school_id)
+
+cca_fit <- glmmTMB(
+  score ~ age + study_hours + (1 + study_hours | school_id),
+  data = cca_data
+)
+
+summary(cca_fit)
+
+cca_estimate <- summary(cca_fit)$coefficients$cond["study_hours", "Estimate"]
+cca_se <- summary(cca_fit)$coefficients$cond["study_hours", "Std. Error"]
+
+lower_cca <- cca_estimate - 1.96 * cca_se
+upper_cca <- cca_estimate + 1.96 * cca_se
+
+covered_cca <- lower_cca <= true_beta_study_hours & upper_cca >= true_beta_study_hours
+
+cca_estimate
 
 
 # Now I use the function inside mice() with "method =" argument
@@ -356,10 +391,10 @@ covered_glmmTMB <- lower_glmmTMB <= true_beta_study_hours & upper_glmmTMB >= tru
 
 
 # Analyzing the imputed datasets from miceadds lmer 
-# (same procedure as for glmmTMB mice function)
-# Basically using glmmTMB as analysis model for completed datasets that were imputed using
-# lmer as imputation model (we can discuss if this is the correct way to do it)
 # ------------------------------------------------------------------------------
+
+# Here I use lmer as the analysis model too.
+
 
 q_lmer <- rep(NA, m)
 se_lmer <- rep(NA, m)
@@ -367,14 +402,15 @@ se_lmer <- rep(NA, m)
 for (k in 1:m) {
   completed_k <- complete(imp_lmer, k)
   completed_k$school_id <- factor(completed_k$school_id)
-  
-  fit_k <- glmmTMB(
+
+  fit_k <- lmer(
     score ~ age + study_hours + (1 + study_hours | school_id),
-    data = completed_k
+    data = completed_k,
+    REML = FALSE
   )
-  
-  q_lmer[k] <- summary(fit_k)$coefficients$cond["study_hours", "Estimate"]
-  se_lmer[k] <- summary(fit_k)$coefficients$cond["study_hours", "Std. Error"]
+
+  q_lmer[k] <- summary(fit_k)$coefficients["study_hours", "Estimate"]
+  se_lmer[k] <- summary(fit_k)$coefficients["study_hours", "Std. Error"]
 }
 
 qbar_lmer <- mean(q_lmer)
@@ -397,38 +433,77 @@ covered_lmer <- lower_lmer <= true_beta_study_hours & upper_lmer >= true_beta_st
 
 
 # The parameter of interest is the effect of study_hours, the true value is 1.8
-# Combing the evaluation into one single dataframe:
-# I save one row per method for this simulation repetition
+# I now include four things in the comparison:
+# 1. Full data before missing values were created
+# 2. Complete case analysis (list-wise deletion)
+# 3. glmmTMB imputation + glmmTMB analysis
+# 4. lmer imputation + lmer analysis
+
 evaluation_sim <- data.frame(
   simulation = sim,
-  
-  method = c("2l.glmmTMB", "2l.continuous (lmer)"),
-  
-  estimate = c(qbar_glmmTMB, qbar_lmer),
-  
+
+  method = c(
+    "Full data before missingness",
+    "CCA list-wise deletion",
+    "glmmTMB imputation + glmmTMB analysis",
+    "lmer imputation + lmer analysis"
+  ),
+
+  estimate = c(
+    complete_estimate,
+    cca_estimate,
+    qbar_glmmTMB,
+    qbar_lmer
+  ),
+
   true_value = true_beta_study_hours,
-  
+
   bias = c(
+    complete_estimate - true_beta_study_hours,
+    cca_estimate - true_beta_study_hours,
     qbar_glmmTMB - true_beta_study_hours,
     qbar_lmer - true_beta_study_hours
   ),
-  
+
   absolute_bias = abs(c(
+    complete_estimate - true_beta_study_hours,
+    cca_estimate - true_beta_study_hours,
     qbar_glmmTMB - true_beta_study_hours,
     qbar_lmer - true_beta_study_hours
   )),
-  
-  lower = c(lower_glmmTMB, lower_lmer),
-  upper = c(upper_glmmTMB, upper_lmer),
-  
-  covered = c(covered_glmmTMB, covered_lmer),
-  
+
+  lower = c(
+    lower_complete,
+    lower_cca,
+    lower_glmmTMB,
+    lower_lmer
+  ),
+
+  upper = c(
+    upper_complete,
+    upper_cca,
+    upper_glmmTMB,
+    upper_lmer
+  ),
+
+  covered = c(
+    covered_complete,
+    covered_cca,
+    covered_glmmTMB,
+    covered_lmer
+  ),
+
   ci_width = c(
+    upper_complete - lower_complete,
+    upper_cca - lower_cca,
     upper_glmmTMB - lower_glmmTMB,
     upper_lmer - lower_lmer
   ),
-  
+
+  # Full data and CCA do not use mice imputation, so I put NA for their imputation runtime.
   runtime_seconds = c(
+    NA,
+    NA,
     as.numeric(runtime_mice_glmmTMB["elapsed"]),
     as.numeric(runtime_mice_lmer["elapsed"])
   )
@@ -447,68 +522,72 @@ evaluation
 
 
 # Summary across the 10 simulation repetitions
+# ------------------------------------------------------------------------------
+
 simulation_summary <- aggregate(
-  cbind(estimate, bias, absolute_bias, covered, ci_width, runtime_seconds) ~ method,
+  cbind(estimate, bias, absolute_bias, covered, ci_width) ~ method,
   data = evaluation,
   FUN = mean
 )
 
+# Runtime is separate because Full data and CCA have NA runtime.
+runtime_summary <- aggregate(
+  runtime_seconds ~ method,
+  data = evaluation,
+  FUN = function(x) mean(x, na.rm = TRUE)
+)
+
+simulation_summary <- merge(
+  simulation_summary,
+  runtime_summary,
+  by = "method",
+  all.x = TRUE
+)
+
 simulation_summary
 
-# Graph 1: bias
 
-# Smaller absolute bias means the estimate is closer to the true value
+# Graph 1: Mean absolute bias
+
+# Smaller absolute bias means the estimate is closer to the true value.
 
 barplot(
-  evaluation$absolute_bias,
-  names.arg = evaluation$method,
-  main = "Absolute bias",
-  ylab = "Absolute bias"
+  simulation_summary$absolute_bias,
+  names.arg = simulation_summary$method,
+  main = "Mean absolute bias",
+  ylab = "Mean absolute bias",
+  las = 2
 )
 
 
-# Graph 2: Confidence interval coverage
+# Graph 2: Coverage rate
 
-# With only a one simulation this is just a rough check not a stable 95% coverage result (to be discussed)
+# This is the proportion of simulation repetitions where the 95% confidence interval
+# included the true value. With only 10 repetitions this is still only a rough check.
 
-plot(
-  1:2,
-  evaluation$estimate,
-  ylim = range(c(evaluation$lower, evaluation$upper, true_beta_study_hours)),
-  xaxt = "n",
-  xlab = "Method",
-  ylab = "Estimate for study_hours",
-  main = "95% CI coverage of the true value"
+barplot(
+  simulation_summary$covered,
+  names.arg = simulation_summary$method,
+  main = "Coverage rate",
+  ylab = "Coverage",
+  ylim = c(0, 1),
+  las = 2
 )
-
-axis(1, at = 1:2, labels = evaluation$method)
-
-arrows(
-  x0 = 1:2,
-  y0 = evaluation$lower,
-  x1 = 1:2,
-  y1 = evaluation$upper,
-  angle = 90,
-  code = 3,
-  length = 0.05
-)
-
-points(
-  1:2,
-  evaluation$estimate,
-  pch = 19
-)
-
-abline(h = true_beta_study_hours, lty = 2, lwd = 2)
 
 
 # Graph 3: Runtime
 
+# I only plot runtime for the two mice imputation methods.
+# Full data and CCA do not have mice imputation runtime.
+
+runtime_to_plot <- subset(simulation_summary, !is.na(runtime_seconds))
+
 barplot(
-  evaluation$runtime_seconds,
-  names.arg = evaluation$method,
-  main = "Runtime comparison",
-  ylab = "Seconds"
+  runtime_to_plot$runtime_seconds,
+  names.arg = runtime_to_plot$method,
+  main = "Runtime comparison for imputation",
+  ylab = "Seconds",
+  las = 2
 )
 
 
