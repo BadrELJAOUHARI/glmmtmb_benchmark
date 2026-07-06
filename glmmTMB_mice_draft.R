@@ -617,10 +617,6 @@ simulation_summary
 # -----------------------------------------
 # Export graphs for report
 
-# I make the graphs with ggplot because it looks cleaner in the report.
-# I save each graph as PNG and PDF.
-# PNG is useful for Word/Google Docs, and PDF is useful for sharp quality.
-
 graph_folder <- "C:/Users/5868777/Downloads/simulation_graphs"
 
 if (!dir.exists(graph_folder)) {
@@ -684,14 +680,6 @@ ggsave(
   dpi = 300
 )
 
-ggsave(
-  filename = file.path(graph_folder, "graph_1_mean_absolute_bias.pdf"),
-  plot = graph_bias,
-  width = 8,
-  height = 5
-)
-
-
 # -----------------------------------------
 # Graph 2: Coverage rate
 
@@ -735,14 +723,6 @@ ggsave(
   dpi = 300
 )
 
-ggsave(
-  filename = file.path(graph_folder, "graph_2_coverage_rate.pdf"),
-  plot = graph_coverage,
-  width = 8,
-  height = 5
-)
-
-
 # -----------------------------------------
 # Graph 3: Runtime
 
@@ -781,13 +761,6 @@ ggsave(
   width = 8,
   height = 5,
   dpi = 300
-)
-
-ggsave(
-  filename = file.path(graph_folder, "graph_3_runtime_comparison.pdf"),
-  plot = graph_runtime,
-  width = 8,
-  height = 5
 )
 
 
